@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { test as userTest, loadAllTestAccounts } from 'deepspace/testing'
 import { captureConsoleErrors } from './helpers/errors'
 import { interceptRecordsSocket, validAnalysisData } from './helpers/forged-write'
+import { card, deleteFromLibrary, saveExampleAs, testName } from './helpers/analyses'
 
 /**
  * Smoke tests covering both page kinds this template ships:
@@ -87,11 +88,18 @@ test.describe('Analyzer (guest)', () => {
     await expect(page.getByText('43.2%').first()).toBeVisible()
     await expect(page.getByText('800 G+C of 1,850 known bases')).toBeVisible()
 
-    // No save form for guests; a sign-in prompt instead, and no saved list
+    // No save form for guests; a sign-in prompt instead, and no Library link
     await expect(page.getByRole('button', { name: 'Sign in to save' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Save analysis' })).toHaveCount(0)
-    await expect(page.getByTestId('saved-analyses')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Library' })).toHaveCount(0)
     expect(errors).toEqual([])
+  })
+
+  test('guest visiting /library is asked to sign in and sees no library', async ({ page }) => {
+    await page.goto('/library')
+    await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: 'Library' })).toHaveCount(0)
+    await expect(page.getByTestId('analysis-card')).toHaveCount(0)
   })
 
   test('server refuses a guest save even when the UI is bypassed', async ({ page }) => {
@@ -114,35 +122,27 @@ const hasTestAccount = loadAllTestAccounts().length >= 1
 userTest.describe('Saving analyses (signed in)', () => {
   userTest.skip(!hasTestAccount, 'Needs 1 usable test account: npx deepspace test accounts create ...')
 
-  userTest('save is private, confirmed, and survives a reload', async ({ users }) => {
+  userTest('save is private, confirmed, listed in the library, and survives a reload', async ({ users }) => {
     const [user] = await users(1)
     const { page } = user
-    const name = `__test-${Date.now()}__ example`
-    const saved = page.getByTestId('saved-analysis').filter({ hasText: name })
-
-    await page.goto('/home')
-    await page.getByRole('button', { name: 'Load example' }).click()
-    await page.getByLabel('Analysis name').fill(name)
-    await page.getByRole('button', { name: 'Save analysis' }).click()
+    const name = testName('example')
+    const saved = card(page, name)
 
     try {
-      // createConfirmed resolved: the server stored it
-      await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 15_000 })
+      // saveExampleAs waits for "Saved": createConfirmed resolved, the server stored it
+      await saveExampleAs(page, name)
+      await page.getByRole('link', { name: 'Open your library' }).click()
       await expect(saved).toContainText('Private')
-      await expect(saved).toContainText('2,000 bp · 43.2% GC')
+      await expect(saved).toContainText('2,000 bp')
+      await expect(saved).toContainText('43.2%')
 
       // Reload: the record comes back from the database, not from memory
       await page.reload()
       await expect(saved).toBeVisible({ timeout: 15_000 })
       await expect(saved).toContainText('Private')
-      await expect(saved).toContainText('2,000 bp · 43.2% GC')
     } finally {
-      // Clean up through the UI (also exercises delete)
-      if (await saved.count()) {
-        await saved.getByRole('button', { name: `Delete ${name}` }).click()
-        await page.getByRole('button', { name: 'Delete', exact: true }).click()
-        await expect(saved).toHaveCount(0, { timeout: 15_000 })
-      }
+      await deleteFromLibrary(page, name) // also exercises delete
+      await expect(saved).toHaveCount(0)
     }
   })
 
@@ -196,8 +196,8 @@ userTest.describe('Saving over an unreliable connection (signed in)', () => {
       })
     })
 
-    const name = `__test-${Date.now()}__ dropped`
-    const saved = page.getByTestId('saved-analysis').filter({ hasText: name })
+    const name = testName('dropped')
+    const saved = card(page, name)
     await page.goto('/home')
     await page.getByRole('button', { name: 'Load example' }).click()
     await page.getByLabel('Analysis name').fill(name)
@@ -206,14 +206,11 @@ userTest.describe('Saving over an unreliable connection (signed in)', () => {
       await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 30_000 })
       expect(dropped).toBe(true)
       expect(saveMessagesSent).toBe(2) // sent, then re-sent after reconnecting
-      await page.reload()
-      await expect(saved).toHaveCount(1, { timeout: 15_000 }) // stored exactly once
+      await page.goto('/library')
+      await expect(page.getByRole('tab', { name: /^My analyses \(\d+\)/ })).toBeVisible({ timeout: 15_000 })
+      await expect(saved).toHaveCount(1) // stored exactly once
     } finally {
-      while (await saved.count()) {
-        await saved.first().getByRole('button', { name: `Delete ${name}` }).click()
-        await page.getByRole('button', { name: 'Delete', exact: true }).click()
-        await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
-      }
+      await deleteFromLibrary(page, name)
     }
   })
 

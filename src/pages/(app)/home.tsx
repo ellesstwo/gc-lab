@@ -8,17 +8,16 @@
  *   windowSize (state) ──────────────────────────────┘                 ▼
  *                       StatsPanel, GcChart, GcDataTable, SaveAnalysisPanel
  *
- * Saving and the saved list talk to the database (the `analyses` collection).
+ * Saving talks to the database (the `analyses` collection); saved analyses
+ * are listed on the Library page (/library).
  */
 
 import { useMemo, useState } from 'react'
 import { BarChart3 } from 'lucide-react'
-import { useAuthStatus } from 'deepspace'
 
 import { GcChart } from '@/components/gc/GcChart'
 import { GcDataTable } from '@/components/gc/GcDataTable'
 import { SaveAnalysisPanel } from '@/components/gc/SaveAnalysisPanel'
-import { SavedAnalysesList } from '@/components/gc/SavedAnalysesList'
 import { SequenceInput } from '@/components/gc/SequenceInput'
 import { StatsPanel } from '@/components/gc/StatsPanel'
 import { WindowSizeControl } from '@/components/gc/WindowSizeControl'
@@ -42,8 +41,6 @@ export default function HomePage() {
     [result, windowSize],
   )
   const analysis = current?.analysis ?? null
-
-  const { isSignedIn, userId } = useAuthStatus()
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 text-foreground sm:px-6">
@@ -107,9 +104,6 @@ export default function HomePage() {
           </p>
         </div>
       )}
-
-      {/* Signed-in users always see their saves, even with an empty paste box. */}
-      {isSignedIn && userId && <SavedAnalysesList userId={userId} />}
     </main>
   )
 }

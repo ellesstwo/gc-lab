@@ -15,11 +15,13 @@ export async function interceptRecordsSocket(page: Page) {
   let role: string | undefined
   const acks = new Map<string, { success: boolean; error?: string }>()
   const created: { collection: string; recordId: string }[] = []
+  const received: string[] = []
 
   await page.routeWebSocket(/\/ws\/app:/, (ws) => {
     const upstream = ws.connectToServer()
     ws.onMessage((message) => upstream.send(message))
     upstream.onMessage((message) => {
+      if (typeof message === 'string') received.push(message)
       try {
         const msg = JSON.parse(typeof message === 'string' ? message : message.toString())
         if (msg.type === 'user.info') role = msg.payload?.role
@@ -52,6 +54,27 @@ export async function interceptRecordsSocket(page: Page) {
       if (ack.success) created.push({ collection, recordId: requestId })
       return { recordId: requestId, ...ack }
     },
+
+    /** Send a raw update to an existing record (e.g. someone else's) and return the ack. */
+    async forgeUpdate(collection: string, recordId: string, data: Record<string, unknown>) {
+      await expect.poll(() => role, { timeout: 15_000 }).toBeDefined()
+      const requestId = `forged-update-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      server!.send(JSON.stringify({ type: 'core.put', payload: { collection, recordId, data, requestId } }))
+      await expect.poll(() => acks.has(requestId), { timeout: 15_000 }).toBe(true)
+      return acks.get(requestId)!
+    },
+
+    /** Send a raw delete and return the ack. */
+    async forgeDelete(collection: string, recordId: string) {
+      await expect.poll(() => role, { timeout: 15_000 }).toBeDefined()
+      const requestId = `forged-delete-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      server!.send(JSON.stringify({ type: 'core.delete', payload: { collection, recordId, requestId } }))
+      await expect.poll(() => acks.has(requestId), { timeout: 15_000 }).toBe(true)
+      return acks.get(requestId)!
+    },
+
+    /** Every raw text frame the server sent this page (to prove what never arrived). */
+    received,
 
     /**
      * Delete anything a forged write managed to create. Call in `finally`:

@@ -6,10 +6,10 @@
  * - Signed-in users name the analysis and save it with createConfirmed(),
  *   which waits for the server to store the record (or refuse it) before
  *   the UI says "Saved". New analyses are always private.
- * The list of saved analyses is a separate component (SavedAnalysesList),
- * shown whenever the user is signed in, even with an empty paste box.
+ * Saved analyses are listed on the Library page (/library).
  */
 import { useId, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertCircle, CheckCircle2, Save } from 'lucide-react'
 import { AuthOverlay, useAuthStatus, useMutations } from 'deepspace'
 
@@ -39,7 +39,7 @@ export function SaveAnalysisPanel({ suggestedName, sequence, analysis }: SaveAna
           Save this analysis
         </h2>
         <p className="text-sm text-muted-foreground">
-          Saved analyses are private: only you can see them.
+          Saved analyses are private: only you can see them, unless you share one from your library.
         </p>
       </div>
 
@@ -134,9 +134,15 @@ function SaveForm({ suggestedName, sequence, analysis }: SaveAnalysisPanelProps)
           </p>
         )}
         {alreadySaved && (
-          <p className="flex items-center gap-2 text-success">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-success">
             <CheckCircle2 aria-hidden="true" className="size-4 shrink-0" />
-            Saved privately. Change the name or window size to save another version.
+            <span>Saved privately.</span>
+            <Link to="/library" className="font-medium text-foreground underline underline-offset-4">
+              Open your library
+            </Link>
+            <span className="basis-full text-muted-foreground">
+              Change the name or window size to save another version.
+            </span>
           </p>
         )}
       </div>

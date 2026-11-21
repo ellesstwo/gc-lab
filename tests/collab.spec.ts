@@ -16,6 +16,8 @@
  * cleanup. No need to manage browser contexts manually.
  */
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
+import { interceptRecordsSocket } from './helpers/forged-write'
+import { card, deleteFromLibrary, expectNoReload, markPage, openTab, saveExampleAs, testName } from './helpers/analyses'
 
 // A machine that has never created test accounts is the normal state of a
 // fresh checkout, and there `users()` throws — turning "you have no pool yet"
@@ -130,4 +132,127 @@ test('API status page shows local retry after first-load API failure', async ({ 
   await retryButton.click()
   await expect.poll(() => requestCount).toBeGreaterThan(requestsAfterFailure)
   expect(user.page.url()).toBe(urlAfterFailure)
+})
+
+/**
+ * Sharing analyses between two real accounts (Steps 11-12).
+ *
+ * Each test proves an update arrived LIVE: a marker is set on the second
+ * user's page before the change, and must still be there after (a reload
+ * or navigation would erase it).
+ */
+test.describe('Sharing analyses between two users', () => {
+  test('a private analysis is visible only to its owner, and never reaches the other browser', async ({ users }) => {
+    const [owner, other] = await users(2)
+    const otherSocket = await interceptRecordsSocket(other.page) // records every frame B receives
+    const name = testName('private')
+
+    try {
+      await other.page.goto('/library')
+      await expect(other.page.getByRole('tab', { name: /^Shared by others \(\d+\)/ })).toBeVisible({ timeout: 15_000 })
+
+      await saveExampleAs(owner.page, name)
+      await owner.page.goto('/library')
+      const ownerCard = card(owner.page, name)
+      await expect(ownerCard).toContainText('Private')
+      const recordId = (await ownerCard.getAttribute('data-record-id'))!
+
+      // B's library: in neither tab
+      await other.page.waitForTimeout(2_000) // give the server time to (wrongly) broadcast
+      await openTab(other.page, 'Shared by others')
+      await expect(card(other.page, name)).toHaveCount(0)
+      await openTab(other.page, 'My analyses')
+      await expect(card(other.page, name)).toHaveCount(0)
+
+      // Stronger: the record was never sent to B's browser at all
+      expect(otherSocket.received.some((frame) => frame.includes(name))).toBe(false)
+
+      // And B cannot change or delete it, even by sending raw messages
+      const update = await otherSocket.forgeUpdate('analyses', recordId, { visibility: 'shared' })
+      expect(update.success).toBe(false)
+      const removal = await otherSocket.forgeDelete('analyses', recordId)
+      expect(removal.success).toBe(false)
+      await owner.page.reload()
+      await expect(card(owner.page, name)).toContainText('Private') // unchanged
+    } finally {
+      await deleteFromLibrary(owner.page, name)
+    }
+  })
+
+  test('sharing makes it appear for the other user without refreshing', async ({ users }) => {
+    const [owner, other] = await users(2)
+    const otherSocket = await interceptRecordsSocket(other.page)
+    const name = testName('shared')
+
+    try {
+      await saveExampleAs(owner.page, name)
+      await owner.page.goto('/library')
+      const ownerCard = card(owner.page, name)
+      await expect(ownerCard).toContainText('Private')
+
+      // B is already looking at "Shared by others"
+      await other.page.goto('/library')
+      await openTab(other.page, 'Shared by others')
+      await expect(card(other.page, name)).toHaveCount(0)
+      await markPage(other.page)
+
+      // A flips the switch
+      await ownerCard.getByRole('switch', { name: 'Share with everyone' }).click()
+      await expect(ownerCard).toContainText('Shared', { timeout: 15_000 })
+
+      // B sees it appear, live
+      const otherCard = card(other.page, name)
+      await expect(otherCard).toBeVisible({ timeout: 10_000 })
+      await expect(otherCard).toContainText('Shared by')
+      await expect(otherCard).not.toContainText('another user') // owner's name resolved
+      await expect(otherCard).toContainText('43.2%')
+      await expectNoReload(other.page)
+
+      // B gets no controls for it, and the server refuses B's raw attempts
+      await expect(otherCard.getByRole('switch')).toHaveCount(0)
+      await expect(otherCard.getByRole('button', { name: /^Delete/ })).toHaveCount(0)
+      const recordId = (await otherCard.getAttribute('data-record-id'))!
+      expect((await otherSocket.forgeUpdate('analyses', recordId, { name: 'hijacked' })).success).toBe(false)
+      expect((await otherSocket.forgeDelete('analyses', recordId)).success).toBe(false)
+      await expect(otherCard).toBeVisible()
+    } finally {
+      await deleteFromLibrary(owner.page, name)
+    }
+  })
+
+  test('making it private again removes it from the other user without refreshing', async ({ users }) => {
+    const [owner, other] = await users(2)
+    const name = testName('unshared')
+
+    try {
+      await saveExampleAs(owner.page, name)
+      await owner.page.goto('/library')
+      const ownerCard = card(owner.page, name)
+      const sharing = ownerCard.getByRole('switch', { name: 'Share with everyone' })
+      await sharing.click()
+      await expect(ownerCard).toContainText('Shared', { timeout: 15_000 })
+
+      await other.page.goto('/library')
+      await openTab(other.page, 'Shared by others')
+      const otherCard = card(other.page, name)
+      await expect(otherCard).toBeVisible({ timeout: 10_000 })
+      await markPage(other.page)
+
+      // A makes it private again
+      await sharing.click()
+      await expect(ownerCard).toContainText('Private', { timeout: 15_000 })
+
+      // It disappears from B's library, live, and the tab count follows
+      await expect(otherCard).toHaveCount(0, { timeout: 10_000 })
+      await expectNoReload(other.page)
+
+      // Still gone after a real reload (not just hidden on the page)
+      await other.page.reload()
+      await openTab(other.page, 'Shared by others')
+      await expect(other.page.getByRole('tab', { name: /^Shared by others \(\d+\)/ })).toBeVisible({ timeout: 15_000 })
+      await expect(card(other.page, name)).toHaveCount(0)
+    } finally {
+      await deleteFromLibrary(owner.page, name)
+    }
+  })
 })
