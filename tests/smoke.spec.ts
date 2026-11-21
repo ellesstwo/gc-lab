@@ -2,7 +2,14 @@ import { test, expect } from '@playwright/test'
 import { test as userTest, loadAllTestAccounts } from 'deepspace/testing'
 import { captureConsoleErrors } from './helpers/errors'
 import { interceptRecordsSocket, validAnalysisData } from './helpers/forged-write'
-import { card, deleteFromLibrary, saveExampleAs, testName } from './helpers/analyses'
+import {
+  card,
+  deleteFromLibrary,
+  expectReopenedExample,
+  saveExampleAs,
+  saveExampleWithWindow,
+  testName,
+} from './helpers/analyses'
 
 /**
  * Smoke tests covering both page kinds this template ships:
@@ -53,6 +60,16 @@ test.describe('Smoke tests', () => {
     await expect(page.getByTestId('static-landing')).toBeVisible()
     await page.waitForTimeout(1500)
     expect(offenders).toEqual([])
+  })
+
+  test('landing shows GC Lab branding, not template copy', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('See where a DNA sequence is GC-rich.')
+    await expect(page).toHaveTitle(/^GC Lab/)
+    await expect(page.getByText('static front door')).toHaveCount(0)
+    await page.getByRole('link', { name: 'Open the analyzer' }).first().click()
+    await expect(page.getByRole('heading', { name: 'GC content analyzer' })).toBeVisible({ timeout: 15000 })
+    await expect(page).toHaveTitle('GC Lab')
   })
 
   test('dynamic app boundary mounts on /home', async ({ page }) => {
@@ -143,6 +160,21 @@ userTest.describe('Saving analyses (signed in)', () => {
     } finally {
       await deleteFromLibrary(page, name) // also exercises delete
       await expect(saved).toHaveCount(0)
+    }
+  })
+
+  userTest('own saved analysis reopens in the analyzer with its window size', async ({ users }) => {
+    const [user] = await users(1)
+    const { page } = user
+    const name = testName('reopen own')
+    try {
+      await saveExampleWithWindow(page, name, 50)
+      await page.goto('/library')
+      await card(page, name).getByRole('link', { name: 'Open ' + name + ' in the analyzer' }).click()
+      await expectReopenedExample(page, name, 50)
+      await expect(page.getByTestId('opened-from-library')).not.toContainText('shared by')
+    } finally {
+      await deleteFromLibrary(page, name)
     }
   })
 

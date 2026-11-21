@@ -5,6 +5,13 @@ import { routes } from '@generouted/react-router/lazy'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import { installStaleChunkRecovery } from './stale-chunk-recovery'
 import './styles.css'
+// IBM Plex, bundled with the app (no external font service). Only the
+// weights the UI uses: 400 regular, 500 medium, 600 semibold.
+import '@fontsource/ibm-plex-sans/400.css'
+import '@fontsource/ibm-plex-sans/500.css'
+import '@fontsource/ibm-plex-sans/600.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
 
 async function main() {
   const root = document.getElementById('root')!

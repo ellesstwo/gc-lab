@@ -43,3 +43,28 @@ export async function markPage(page: Page) {
 export async function expectNoReload(page: Page) {
   expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true)
 }
+
+/** Save the example with a chosen window size (to prove reopening restores it). */
+export async function saveExampleWithWindow(page: Page, name: string, windowSize: number) {
+  await page.goto('/home')
+  await page.getByRole('button', { name: 'Load example' }).click()
+  const size = page.getByLabel('Window size (bp)')
+  await size.fill(String(windowSize))
+  await size.press('Enter')
+  await expect(page.getByText(/windows? · allowed/)).toContainText(`${Math.ceil(2000 / windowSize)} windows`)
+  await page.getByLabel('Analysis name').fill(name)
+  await page.getByRole('button', { name: 'Save analysis' }).click()
+  await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 15_000 })
+}
+
+/** Check the analyzer shows the reopened example: same sequence, stats and window size. */
+export async function expectReopenedExample(page: Page, name: string, windowSize: number) {
+  await expect(page).toHaveURL(/\/home$/)
+  await expect(page.getByTestId('opened-from-library')).toContainText(name)
+  const text = await page.getByLabel('DNA sequence').inputValue()
+  expect(text.startsWith(`>${name}\n`)).toBe(true)
+  await expect(page.getByText('2,000 / 25,000 nucleotides')).toBeVisible()
+  await expect(page.getByText('800 G+C of 1,850 known bases')).toBeVisible() // same stats as saved
+  await expect(page.getByLabel('Window size (bp)')).toHaveValue(String(windowSize))
+  await expect(page.getByLabel('Analysis name')).toHaveValue(name) // FASTA header -> name
+}

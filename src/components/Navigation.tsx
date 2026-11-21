@@ -12,7 +12,8 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { AuthOverlay, useAuthProfileReady, signOut } from 'deepspace'
 import { ChevronDown, LogOut, Menu, X } from 'lucide-react'
-import { APP_NAME } from '../constants'
+import { APP_TITLE } from '../constants'
+import { GcLabMark } from './GcLabMark'
 import type { Role } from '../constants'
 import { nav } from '../nav'
 import { cn } from '../lib/utils'
@@ -58,8 +59,10 @@ export default function Navigation() {
         to={item.path}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'px-3 py-1.5 text-sm',
-          active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+          'rounded-md px-3 py-1.5 text-sm transition-colors',
+          active
+            ? 'bg-accent font-medium text-foreground'
+            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
         )}
       >
         {item.label}
@@ -69,13 +72,14 @@ export default function Navigation() {
 
   return (
     <>
-      <nav data-testid="app-navigation" className="border-b border-border bg-background">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-4 px-4">
-          <Link to="/home" className="text-sm font-semibold text-foreground">
-            {APP_NAME}
+      <nav data-testid="app-navigation" aria-label="Main" className="border-b border-border bg-background/95">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4 sm:px-6">
+          <Link to="/home" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
+            <GcLabMark className="size-7" />
+            {APP_TITLE}
           </Link>
 
-          <div className="hidden items-center md:flex">{visibleNav.map(navLink)}</div>
+          <div className="hidden items-center gap-1 md:flex">{visibleNav.map(navLink)}</div>
 
           <div className="flex-1" />
 

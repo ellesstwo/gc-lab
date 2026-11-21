@@ -145,8 +145,19 @@ export default function LibraryPage() {
   )
 }
 
+/** Placeholder cards shaped like the real ones while the library loads. */
 function Loading() {
-  return <p className="py-8 text-center text-muted-foreground">Loading…</p>
+  return (
+    <ul className="grid gap-3 md:grid-cols-2" aria-busy="true" aria-label="Loading analyses">
+      {[0, 1].map((i) => (
+        <li key={i} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+          <div className="h-5 w-2/3 animate-pulse rounded-md bg-muted" />
+          <div className="h-4 w-full animate-pulse rounded-md bg-muted" />
+          <div className="h-8 w-1/2 animate-pulse rounded-md bg-muted" />
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function Empty({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {

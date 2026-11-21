@@ -149,6 +149,17 @@ export function parseSequenceInput(input: string): ParseResult {
 }
 
 /**
+ * Write a name and a cleaned sequence back out as FASTA text: the reverse of
+ * parseSequenceInput(). Used to put a saved analysis back into the paste box.
+ * Lines are 60 bases long, the common FASTA convention.
+ */
+export function toFasta(name: string, sequence: string): string {
+  const lines: string[] = []
+  for (let i = 0; i < sequence.length; i += 60) lines.push(sequence.slice(i, i + 60))
+  return `>${name}\n${lines.join('\n')}\n`
+}
+
+/**
  * Count the sequence characters in pasted text, for the live counter.
  *
  * Unlike parseSequenceInput(), this works on invalid input too, so the user

@@ -2,8 +2,9 @@
  * Colors for the analyzer's charts.
  *
  * The A/C/G/T colors are the first four slots of a validated categorical
- * palette (dark-mode steps), checked against this app's dark card surface
- * (#161616) for colorblind separation and contrast: all checks pass.
+ * palette (dark-mode steps), checked against this app's card surface
+ * (#111820, see src/themes.css) for colorblind separation and contrast:
+ * all checks pass.
  * N ("unknown") is deliberately a neutral gray, not a hue.
  *
  * If the app switches to a light theme, these need their light-mode steps.

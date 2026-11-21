@@ -1,16 +1,19 @@
 /**
  * AnalysisCard: one saved analysis in the library.
  *
- * Owners get a Private/Shared switch and a delete button. Other users'
+ * Everyone gets "Open in analyzer".
+ * Owners also get a Private/Shared switch and a delete button. Other users'
  * shared analyses show who shared them and nothing editable (the server
  * would refuse their changes anyway: update/delete are 'own').
  */
 import { useId, useState } from 'react'
-import { Lock, Trash2, Users } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ChartLine, Lock, Trash2, Users } from 'lucide-react'
 import { useMutations, type RecordData } from 'deepspace'
 
-import { Button, Label, Switch, useToast } from '@/components/ui'
+import { Button, buttonVariants, Label, Switch, useToast } from '@/components/ui'
 import { describeSaveError } from '@/lib/gc/analysis-record'
+import type { OpenAnalysis } from '@/lib/gc/open-analysis'
 import { ANALYSES_COLLECTION, type Analysis, type Visibility } from '@/schemas/analyses-schema'
 import { formatCount, formatPercent } from './format'
 
@@ -52,9 +55,29 @@ export function AnalysisCard({ record, isOwner, ownerName, onDelete }: AnalysisC
           {!isOwner && <>Shared by {ownerName ?? 'another user'} · </>}
           <time dateTime={record.createdAt}>{new Date(record.createdAt).toLocaleString()}</time>
         </p>
-        {isOwner && (
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {isOwner && (
             <VisibilitySwitch recordId={record.recordId} name={data.name} visibility={data.visibility} />
+          )}
+          {/* Reopen in the analyzer: the saved data travels with the navigation
+              (see src/lib/gc/open-analysis.ts). Works for own and shared analyses. */}
+          <Link
+            to="/home"
+            state={{
+              openAnalysis: {
+                name: data.name,
+                sequence: data.sequence,
+                windowSize: data.windowSize,
+                sharedBy: isOwner ? null : (ownerName ?? 'another user'),
+              } satisfies OpenAnalysis,
+            }}
+            aria-label={`Open ${data.name} in the analyzer`}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <ChartLine aria-hidden="true" />
+            Open in analyzer
+          </Link>
+          {isOwner && (
             <Button
               variant="ghost"
               size="icon"
@@ -64,8 +87,8 @@ export function AnalysisCard({ record, isOwner, ownerName, onDelete }: AnalysisC
             >
               <Trash2 aria-hidden="true" />
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </li>
   )

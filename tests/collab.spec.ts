@@ -17,7 +17,17 @@
  */
 import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 import { interceptRecordsSocket } from './helpers/forged-write'
-import { card, deleteFromLibrary, expectNoReload, markPage, openTab, saveExampleAs, testName } from './helpers/analyses'
+import {
+  card,
+  deleteFromLibrary,
+  expectNoReload,
+  expectReopenedExample,
+  markPage,
+  openTab,
+  saveExampleAs,
+  saveExampleWithWindow,
+  testName,
+} from './helpers/analyses'
 
 // A machine that has never created test accounts is the normal state of a
 // fresh checkout, and there `users()` throws — turning "you have no pool yet"
@@ -251,6 +261,34 @@ test.describe('Sharing analyses between two users', () => {
       await openTab(other.page, 'Shared by others')
       await expect(other.page.getByRole('tab', { name: /^Shared by others \(\d+\)/ })).toBeVisible({ timeout: 15_000 })
       await expect(card(other.page, name)).toHaveCount(0)
+    } finally {
+      await deleteFromLibrary(owner.page, name)
+    }
+  })
+})
+
+test.describe('Reopening analyses', () => {
+  test('another user can open a shared analysis in the analyzer, read-only to the original', async ({ users }) => {
+    const [owner, other] = await users(2)
+    const name = testName('reopen shared')
+    try {
+      await saveExampleWithWindow(owner.page, name, 50)
+      await owner.page.goto('/library')
+      await card(owner.page, name).getByRole('switch', { name: 'Share with everyone' }).click()
+      await expect(card(owner.page, name)).toContainText('Shared', { timeout: 15_000 })
+
+      await other.page.goto('/library')
+      await openTab(other.page, 'Shared by others')
+      await card(other.page, name).getByRole('link', { name: 'Open ' + name + ' in the analyzer' }).click()
+      await expectReopenedExample(other.page, name, 50)
+      await expect(other.page.getByTestId('opened-from-library')).toContainText('shared by')
+
+      // Editing the reopened copy changes nothing for the owner
+      await other.page.getByLabel('DNA sequence').fill(`>${name}\nGGGGCCCC`)
+      await expect(other.page.getByText('100.0%').first()).toBeVisible() // B's copy changed
+      await owner.page.reload()
+      await expect(card(owner.page, name)).toContainText('43.2%')
+      await expect(card(owner.page, name)).toContainText('2,000 bp')
     } finally {
       await deleteFromLibrary(owner.page, name)
     }

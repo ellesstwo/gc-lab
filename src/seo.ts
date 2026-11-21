@@ -17,7 +17,7 @@
  * restrictions require separate controls.
  */
 
-import { APP_NAME } from './constants'
+import { APP_TITLE } from './constants'
 
 /** Injected by prerender.ts: `https://<name>.app.space` from wrangler.toml, or
  *  what `deepspace deploy` passes (staging: spacestest.com). Absent in unit
@@ -25,8 +25,9 @@ import { APP_NAME } from './constants'
 declare const __DEEPSPACE_SITE_ORIGIN__: string | undefined
 
 export const seo = {
-  title: APP_NAME,
-  description: `${APP_NAME} is a real-time collaborative app.`,
+  title: `${APP_TITLE} | GC content analysis for DNA sequences`,
+  description:
+    'Paste a DNA sequence or FASTA record and see its GC content along its length. Save analyses privately, or share them with others in real time.',
   /** Public origin for canonical URLs, og:url, and the sitemap — no trailing
    *  slash. Replace with the custom domain once one is attached, e.g.
    *  'https://www.example.com'. */

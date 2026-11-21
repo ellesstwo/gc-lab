@@ -1,6 +1,12 @@
 /** App name — replaced by the CLI during scaffolding */
 export const APP_NAME = 'fullstacktask'
 
+/**
+ * The name people see (navigation, page titles). Kept separate from
+ * APP_NAME, which is the DeepSpace app's technical name used by tooling.
+ */
+export const APP_TITLE = 'GC Lab'
+
 /** Immutable app identity — data scope keys to this, so renames never
  *  strand your records.
  *

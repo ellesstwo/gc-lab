@@ -1,3 +1,5 @@
+/* home pattern: product-preview-first — the analyzer itself is the home page; guests use it fully, saving needs sign-in */
+
 /**
  * Analyzer page (/home). Public: guests can use it without signing in.
  *
@@ -13,7 +15,8 @@
  */
 
 import { useMemo, useState } from 'react'
-import { BarChart3 } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { BarChart3, FolderOpen } from 'lucide-react'
 
 import { GcChart } from '@/components/gc/GcChart'
 import { GcDataTable } from '@/components/gc/GcDataTable'
@@ -23,12 +26,20 @@ import { StatsPanel } from '@/components/gc/StatsPanel'
 import { WindowSizeControl } from '@/components/gc/WindowSizeControl'
 import { formatCount } from '@/components/gc/format'
 import { analyzeSequence } from '@/lib/gc/gc'
-import { parseSequenceInput } from '@/lib/gc/sequence'
+import { readOpenAnalysis } from '@/lib/gc/open-analysis'
+import { parseSequenceInput, toFasta } from '@/lib/gc/sequence'
 
 export default function HomePage() {
-  // State: the only two things the user controls.
-  const [text, setText] = useState('')
-  const [windowSize, setWindowSize] = useState<number | null>(null) // null = default
+  // An analysis opened from the library (or null on a normal visit).
+  // See src/lib/gc/open-analysis.ts.
+  const location = useLocation()
+  const opened = readOpenAnalysis(location.state)
+
+  // State: the only two things the user controls. The functions passed to
+  // useState run once, on first render: an opened analysis becomes the
+  // starting text and window size, and from then on the user edits freely.
+  const [text, setText] = useState(() => (opened ? toFasta(opened.name, opened.sequence) : ''))
+  const [windowSize, setWindowSize] = useState<number | null>(() => opened?.windowSize ?? null) // null = default
 
   // Derived: recomputed only when their inputs change.
   const result = useMemo(() => parseSequenceInput(text), [text])
@@ -50,6 +61,22 @@ export default function HomePage() {
           Paste a DNA sequence to measure its GC content along its length.
         </p>
       </header>
+
+      {opened && (
+        <p
+          data-testid="opened-from-library"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border bg-card px-4 py-3 text-sm"
+        >
+          <FolderOpen aria-hidden="true" className="size-4 shrink-0 text-primary" />
+          <span>
+            Opened <span className="font-medium">“{opened.name}”</span> from the library
+            {opened.sharedBy && <> (shared by {opened.sharedBy})</>}.
+          </span>
+          <span className="text-muted-foreground">
+            Changes here don’t alter the saved analysis; saving creates a new copy.
+          </span>
+        </p>
+      )}
 
       <SequenceInput value={text} onChange={setText} result={result} />
 
