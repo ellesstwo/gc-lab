@@ -6,14 +6,19 @@
  *   text (state) ──parseSequenceInput──► result ──analyzeSequence──► analysis
  *                                                    ▲                 │
  *   windowSize (state) ──────────────────────────────┘                 ▼
- *                                         StatsPanel, GcChart, GcDataTable
+ *                       StatsPanel, GcChart, GcDataTable, SaveAnalysisPanel
+ *
+ * Saving and the saved list talk to the database (the `analyses` collection).
  */
 
 import { useMemo, useState } from 'react'
 import { BarChart3 } from 'lucide-react'
+import { useAuthStatus } from 'deepspace'
 
 import { GcChart } from '@/components/gc/GcChart'
 import { GcDataTable } from '@/components/gc/GcDataTable'
+import { SaveAnalysisPanel } from '@/components/gc/SaveAnalysisPanel'
+import { SavedAnalysesList } from '@/components/gc/SavedAnalysesList'
 import { SequenceInput } from '@/components/gc/SequenceInput'
 import { StatsPanel } from '@/components/gc/StatsPanel'
 import { WindowSizeControl } from '@/components/gc/WindowSizeControl'
@@ -28,10 +33,17 @@ export default function HomePage() {
 
   // Derived: recomputed only when their inputs change.
   const result = useMemo(() => parseSequenceInput(text), [text])
-  const analysis = useMemo(
-    () => (result.ok ? analyzeSequence(result.value.sequence, windowSize) : null),
+  // null while the input is empty or invalid.
+  const current = useMemo(
+    () =>
+      result.ok
+        ? { parsed: result.value, analysis: analyzeSequence(result.value.sequence, windowSize) }
+        : null,
     [result, windowSize],
   )
+  const analysis = current?.analysis ?? null
+
+  const { isSignedIn, userId } = useAuthStatus()
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 text-foreground sm:px-6">
@@ -44,7 +56,7 @@ export default function HomePage() {
 
       <SequenceInput value={text} onChange={setText} result={result} />
 
-      {analysis ? (
+      {current && analysis ? (
         <>
           <StatsPanel length={analysis.length} counts={analysis.counts} gcPercent={analysis.gcPercent} />
 
@@ -75,6 +87,14 @@ export default function HomePage() {
             />
             <GcDataTable windows={analysis.windows} />
           </section>
+
+          {/* key: a new FASTA header resets the name box to that header */}
+          <SaveAnalysisPanel
+            key={current.parsed.name ?? ''}
+            suggestedName={current.parsed.name}
+            sequence={current.parsed.sequence}
+            analysis={analysis}
+          />
         </>
       ) : (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border px-6 py-12 text-center">
@@ -87,6 +107,9 @@ export default function HomePage() {
           </p>
         </div>
       )}
+
+      {/* Signed-in users always see their saves, even with an empty paste box. */}
+      {isSignedIn && userId && <SavedAnalysesList userId={userId} />}
     </main>
   )
 }

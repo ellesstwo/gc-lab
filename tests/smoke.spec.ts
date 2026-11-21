@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
+import { test as userTest, loadAllTestAccounts } from 'deepspace/testing'
 import { captureConsoleErrors } from './helpers/errors'
+import { interceptRecordsSocket, validAnalysisData } from './helpers/forged-write'
 
 /**
  * Smoke tests covering both page kinds this template ships:
@@ -67,5 +69,175 @@ test.describe('Smoke tests', () => {
     await page.goto('/nonexistent-page-xyz')
     await waitForApp(page)
     await expect(page.locator('text=404')).toBeVisible()
+  })
+})
+
+/**
+ * Analyzer + saving (Steps 5-10).
+ * Guest tests use plain Playwright; signed-in tests use the DeepSpace `users`
+ * fixture (test accounts from `npx deepspace test accounts list --usable`).
+ */
+test.describe('Analyzer (guest)', () => {
+  test('guest can analyze, but is asked to sign in to save', async ({ page }) => {
+    const errors = captureConsoleErrors(page)
+    await page.goto('/home')
+    await page.getByRole('button', { name: 'Load example' }).click()
+
+    // Real results from the real calculation
+    await expect(page.getByText('43.2%').first()).toBeVisible()
+    await expect(page.getByText('800 G+C of 1,850 known bases')).toBeVisible()
+
+    // No save form for guests; a sign-in prompt instead, and no saved list
+    await expect(page.getByRole('button', { name: 'Sign in to save' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save analysis' })).toHaveCount(0)
+    await expect(page.getByTestId('saved-analyses')).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+
+  test('server refuses a guest save even when the UI is bypassed', async ({ page }) => {
+    const socket = await interceptRecordsSocket(page)
+    await page.goto('/home')
+
+    try {
+      expect(await socket.role()).toBe('viewer') // guests connect as 'viewer'
+      const ack = await socket.forgeCreate('analyses', validAnalysisData())
+      expect(ack.success).toBe(false)
+      expect(ack.error).toMatch(/CREATE DENIED/)
+    } finally {
+      await socket.cleanup()
+    }
+  })
+})
+
+const hasTestAccount = loadAllTestAccounts().length >= 1
+
+userTest.describe('Saving analyses (signed in)', () => {
+  userTest.skip(!hasTestAccount, 'Needs 1 usable test account: npx deepspace test accounts create ...')
+
+  userTest('save is private, confirmed, and survives a reload', async ({ users }) => {
+    const [user] = await users(1)
+    const { page } = user
+    const name = `__test-${Date.now()}__ example`
+    const saved = page.getByTestId('saved-analysis').filter({ hasText: name })
+
+    await page.goto('/home')
+    await page.getByRole('button', { name: 'Load example' }).click()
+    await page.getByLabel('Analysis name').fill(name)
+    await page.getByRole('button', { name: 'Save analysis' }).click()
+
+    try {
+      // createConfirmed resolved: the server stored it
+      await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 15_000 })
+      await expect(saved).toContainText('Private')
+      await expect(saved).toContainText('2,000 bp · 43.2% GC')
+
+      // Reload: the record comes back from the database, not from memory
+      await page.reload()
+      await expect(saved).toBeVisible({ timeout: 15_000 })
+      await expect(saved).toContainText('Private')
+      await expect(saved).toContainText('2,000 bp · 43.2% GC')
+    } finally {
+      // Clean up through the UI (also exercises delete)
+      if (await saved.count()) {
+        await saved.getByRole('button', { name: `Delete ${name}` }).click()
+        await page.getByRole('button', { name: 'Delete', exact: true }).click()
+        await expect(saved).toHaveCount(0, { timeout: 15_000 })
+      }
+    }
+  })
+
+  userTest('server enforces the 25,000-nucleotide limit when the UI is bypassed', async ({ users }) => {
+    const [user] = await users(1)
+    const socket = await interceptRecordsSocket(user.page)
+    await user.page.goto('/home')
+
+    try {
+      expect(await socket.role()).toBe('member')
+      const tooLong = await socket.forgeCreate(
+        'analyses',
+        validAnalysisData({ sequence: 'A'.repeat(25_001), length: 25_001 }),
+      )
+      expect(tooLong.success).toBe(false)
+      expect(tooLong.error).toMatch(/'sequence' must be text of at most 25000 characters/)
+    } finally {
+      await socket.cleanup()
+    }
+  })
+})
+
+/**
+ * What the save UI does when the connection is unreliable. These pin the
+ * behavior of the installed SDK (0.44.2), which differs from older docs:
+ * re-run them after any SDK upgrade.
+ */
+userTest.describe('Saving over an unreliable connection (signed in)', () => {
+  userTest.skip(!hasTestAccount, 'Needs 1 usable test account')
+
+  userTest('connection drops before the server confirms: re-sent once, stored once', async ({ users }) => {
+    const [user] = await users(1)
+    const { page } = user
+    let dropped = false
+    let saveMessagesSent = 0
+    await page.routeWebSocket(/\/ws\/app:/, (ws) => {
+      const server = ws.connectToServer()
+      ws.onMessage((m) => {
+        if (String(m).includes('"core.put"')) saveMessagesSent++
+        server.send(m)
+      })
+      server.onMessage((m) => {
+        // The server stores the save; we lose its confirmation and the connection.
+        if (!dropped && String(m).includes('"records.ack"')) {
+          dropped = true
+          ws.close()
+          server.close()
+          return
+        }
+        ws.send(m)
+      })
+    })
+
+    const name = `__test-${Date.now()}__ dropped`
+    const saved = page.getByTestId('saved-analysis').filter({ hasText: name })
+    await page.goto('/home')
+    await page.getByRole('button', { name: 'Load example' }).click()
+    await page.getByLabel('Analysis name').fill(name)
+    await page.getByRole('button', { name: 'Save analysis' }).click()
+    try {
+      await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible({ timeout: 30_000 })
+      expect(dropped).toBe(true)
+      expect(saveMessagesSent).toBe(2) // sent, then re-sent after reconnecting
+      await page.reload()
+      await expect(saved).toHaveCount(1, { timeout: 15_000 }) // stored exactly once
+    } finally {
+      while (await saved.count()) {
+        await saved.first().getByRole('button', { name: `Delete ${name}` }).click()
+        await page.getByRole('button', { name: 'Delete', exact: true }).click()
+        await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+      }
+    }
+  })
+
+  userTest('server never confirms: honest error, no promise, button usable again', async ({ users }) => {
+    userTest.setTimeout(90_000) // the SDK gives up after 3 connections x 10 s
+    const [user] = await users(1)
+    const { page } = user
+    await page.routeWebSocket(/\/ws\/app:/, (ws) => {
+      const server = ws.connectToServer()
+      ws.onMessage((m) => {
+        if (!String(m).includes('"core.put"')) server.send(m) // saves never arrive
+      })
+      server.onMessage((m) => ws.send(m))
+    })
+
+    await page.goto('/home')
+    await page.getByRole('button', { name: 'Load example' }).click()
+    await page.getByLabel('Analysis name').fill(`__test-${Date.now()}__ never confirmed`)
+    await page.getByRole('button', { name: 'Save analysis' }).click()
+
+    await expect(page.getByText('Waiting for the server to confirm this save.')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByText('The server did not confirm the save.').first()).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText(/before saving again, to avoid a duplicate/).first()).toBeVisible()
+    await expect(page.getByText('Waiting for the server to confirm this save.')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Save analysis' })).toBeEnabled({ timeout: 15_000 })
   })
 })
