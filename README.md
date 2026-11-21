@@ -1,5 +1,7 @@
 # GC Lab
 
+**Live app: [gc-lab.app.space](https://gc-lab.app.space)** · No account needed to analyze; sign in to save and share.
+
 GC Lab is a small full-stack web app for measuring the **GC content of DNA sequences**.
 Paste a raw sequence or a FASTA record and it shows the overall GC content, the base
 composition, and an interactive chart of GC content along the sequence. Signed-in users
@@ -8,6 +10,9 @@ users' libraries in real time.
 
 It is built on the [DeepSpace SDK](https://docs.deep.space) (React + Cloudflare Workers)
 and adapts algorithms from a computational genomics course exercise.
+
+> This GitHub repository is a public mirror. The app is deployed from DeepSpace's own
+> repository, which is its official source (see [Deploying](#deploying)).
 
 ---
 
@@ -38,10 +43,28 @@ kept locally and not committed). The port fixes several bugs in the original:
 | N counted in the denominator | **GC % = (G + C) / (A + C + G + T)** |
 | Windows over 80% N filled with the whole-region average | Windows with **≥ 80% N** are gaps (`gcPercent: null`) |
 | Whole genome re-counted on every loop iteration | Each base is counted once |
-| Digits/other characters silently merged or ignored | Rejected with a clear message (the user's data is never changed silently) |
+| No input validation; extra FASTA records silently merged into one sequence | Only A/C/G/T/N accepted, one record only; anything else is rejected with a clear message (the user's data is never changed silently) |
 
 Default window size follows the original: `ceil(length / 100)`, at least 5. The smallest
 allowed window keeps the chart at **1,000 points or fewer**.
+
+---
+
+## Technology
+
+| Layer | Tools |
+|---|---|
+| Language | TypeScript |
+| Frontend | React 19, React Router (file-based routes via generouted), Tailwind CSS 4, Base UI components, Lucide icons, IBM Plex fonts (bundled) |
+| Charts | Hand-written SVG (no chart library) |
+| Backend and data | DeepSpace SDK 0.44 on Cloudflare Workers; a Durable Object with SQLite stores records and pushes real-time updates over WebSockets |
+| Auth | DeepSpace sign-in (GitHub or Google) |
+| Build | Vite |
+| Tests | Vitest (unit), Playwright with DeepSpace's multi-user fixture (browser) |
+| Hosting | DeepSpace (`*.app.space`) |
+
+The project started from the DeepSpace app template; the files written for GC Lab are
+listed under [Project structure](#project-structure-the-files-written-for-gc-lab).
 
 ---
 
@@ -91,9 +114,9 @@ src/
   pages/(app)/(protected)/library.tsx   Library (/library), sign-in required
   themes.css                   GC Lab colors, fonts, corner radius
 tests/
-  smoke.spec.ts                Pages, guest rules, saving, server-side limits,
-                                 dropped-connection behavior
-  collab.spec.ts               Two-account privacy and live-sharing tests
+  smoke.spec.ts                Pages, guest rules, saving, reopening, server-side
+                                 limits, dropped-connection behavior
+  collab.spec.ts               Two-account privacy, live sharing, reopening shared analyses
   helpers/                     Test helpers (raw WebSocket writes, library steps)
 ```
 
@@ -145,13 +168,21 @@ record visible; anything else stays private.
 
 ## Running locally
 
-**Requirements:** Node.js 22.15+, 24, or 26 and npm 11.6+ (see `package.json` → `engines`).
+**Requirements:** Node.js 22.15+, 24, or 26; npm 11.6+ (see `package.json` → `engines`);
+and a [DeepSpace](https://deep.space) account.
 
 ```sh
+git clone https://github.com/ellesstwo/gc-lab.git
+cd gc-lab
 npm install
 npx deepspace auth login     # one-time: opens a browser to sign in to DeepSpace
+npx deepspace app init --new-id   # cloned copies only: register your OWN app (see below)
 npx deepspace dev start      # http://localhost:5173 (Vite + local Workers runtime)
 ```
+
+`wrangler.toml` contains GC Lab's app ID. If you clone this repository, run
+`npx deepspace app init --new-id` first: it gives your copy its own ID, data and secrets
+instead of pointing at the live GC Lab app.
 
 The local database lives in `.wrangler/` (git-ignored). Restart the dev server after
 changing a schema.
@@ -188,10 +219,18 @@ the tests themselves.
 
 ### Deploying
 
+DeepSpace's own Git repository (the `space` remote) is GC Lab's official source; GitHub
+(`origin`) is a mirror for reading the code.
+
 ```sh
-git commit ...               # deploy records the commit and refuses a dirty working tree
-npx deepspace deploy         # publishes to https://<app>.app.space
+git commit ...               # deploy records the commit and refuses uncommitted changes
+npx deepspace deploy         # sync to DeepSpace and publish to https://gc-lab.app.space
+git push origin main         # update the GitHub mirror
 ```
+
+For documentation-only changes, `npx deepspace push` syncs DeepSpace's repository without
+redeploying. Every deploy is recorded and can be rolled back (`npx deepspace releases`,
+`npx deepspace rollback <release-id>`).
 
 ---
 
@@ -227,11 +266,18 @@ npx deepspace deploy         # publishes to https://<app>.app.space
 
 ## AI assistance
 
-> Draft: review and edit so it describes your process in your own words.
+This project was built with substantial help from **Claude Code**, Anthropic's AI coding
+assistant, working step by step under my direction.
 
-This project was built with help from Claude Code (Anthropic), working step by step under
-my direction: I chose the scope, the algorithm decisions (≥ 80% N gaps, A+C+G+T
-denominator, non-overlapping windows, 25,000 nt limit, private by default), and reviewed
-and tested each step before approving the next. Claude ported my Python course code to
-TypeScript, wrote the components, schema and tests, and explained each part. All commits
-were reviewed by me before being made.
+**My role:** I defined the project and its scope, supplied my original Python course code,
+and made the key design decisions: windows that are 80% N or more shown as gaps, GC % over
+A+C+G+T only, non-overlapping windows, a 25,000-nucleotide limit, and analyses private by
+default. I reviewed every step, tested the app by hand, asked for changes, and approved
+each commit.
+
+**Claude's role:** Claude identified bugs in the original Python, ported the algorithms to
+TypeScript, and wrote most of the application code, database schema, automated tests and
+this README, explaining each part as it went.
+
+**Verification:** 119 unit tests and 24 browser tests (including two-account privacy and
+real-time checks), plus the same flows checked on the live deployment.
